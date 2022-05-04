@@ -1,4 +1,9 @@
 .project
 .settings
 .classpath
+.DS_Store
+
 target
+jobschedulerdb
+
+*.log
