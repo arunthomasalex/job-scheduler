@@ -20,7 +20,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 import javax.management.InstanceAlreadyExistsException;
@@ -44,7 +46,8 @@ public class JobScheduler {
 
 	private List<Job> jobs;
 	private Map<String, List<String>> taskDependencies;
-	private Lock lock;
+	private Lock daemonLock;
+	private ReadWriteLock jobLock;
 	private JobService jobService;
 	private static MBeanServer mBeanServer;
 	private ExecutorService executorService = Executors.newWorkStealingPool(Runtime.getRuntime().availableProcessors());
@@ -71,7 +74,8 @@ public class JobScheduler {
 	private JobScheduler() {
 		configuration = JobConfiguration.getConfigurations();
 		jobService = new JobServiceImpl();
-		lock = new ReentrantLock();
+		daemonLock = new ReentrantLock();
+		jobLock = new ReentrantReadWriteLock();
 		jobs = Collections.synchronizedList(new ArrayList<Job>());
 		taskDependencies = new ConcurrentHashMap<String, List<String>>();
 		startScheduler();
@@ -84,7 +88,7 @@ public class JobScheduler {
 			daemonService.scheduleAtFixedRate(() -> {
 				boolean isLockAvailable = false;
 				try {
-					isLockAvailable = lock.tryLock(1, TimeUnit.SECONDS);
+					isLockAvailable = daemonLock.tryLock(1, TimeUnit.SECONDS);
 					if (isLockAvailable) {
 						ListIterator<Job> jobIter = jobs.listIterator();
 						while (jobIter.hasNext()) {
@@ -106,7 +110,10 @@ public class JobScheduler {
 										changeJobStatus(job, JobState.FAILED);
 									}
 									removeAllTaskDependencies(job.getTasks());
+
+									jobLock.writeLock().lock();
 									jobIter.remove();
+									jobLock.writeLock().unlock();
 								}
 							} catch (Throwable t) {
 								t.printStackTrace();
@@ -117,7 +124,7 @@ public class JobScheduler {
 					e.printStackTrace();
 				} finally {
 					if (isLockAvailable)
-						lock.unlock();
+						daemonLock.unlock();
 				}
 			}, 0, Long.valueOf(configuration.getProperty("config.daemon.interval", "1")), TimeUnit.SECONDS);
 		}
@@ -148,15 +155,32 @@ public class JobScheduler {
 	}
 
 	public Map<String, String> getActiveJobStatus() {
-		return jobs.stream().collect(Collectors.toMap(Job::getJobId, job -> job.getState().name()));
+		boolean entered = false;
+		Map<String, String> data = null;
+		try {
+			entered = jobLock.readLock().tryLock();
+			data = jobs.stream().collect(Collectors.toMap(Job::getJobId, job -> job.getState().name()));
+		} finally {
+			if (entered)
+				jobLock.readLock().unlock();
+		}
+		return data;
 	}
 
 	public Map<String, Map<String, String>> getActiveJobTaskStatus() {
-		Map<String, Map<String, String>> data = new HashMap<String, Map<String, String>>();
-		for (Job job : jobs) {
-			Map<String, String> taskStatus = new HashMap<String, String>();
-			iterateTaskStatus(taskStatus, job.getTasks());
-			data.put(job.getJobId(), taskStatus);
+		boolean entered = false;
+		Map<String, Map<String, String>> data = null;
+		try {
+			entered = jobLock.readLock().tryLock();
+			data = new HashMap<String, Map<String, String>>();
+			for (Job job : jobs) {
+				Map<String, String> taskStatus = new HashMap<String, String>();
+				iterateTaskStatus(taskStatus, job.getTasks());
+				data.put(job.getJobId(), taskStatus);
+			}
+		} finally {
+			if (entered)
+				jobLock.readLock().unlock();
 		}
 		return data;
 	}

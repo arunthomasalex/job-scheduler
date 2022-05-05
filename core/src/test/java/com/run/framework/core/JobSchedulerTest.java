@@ -76,7 +76,7 @@ public class JobSchedulerTest {
 	public void testFailedJobCreation() throws InterruptedException {
 		JobScheduler scheduler = JobScheduler.getDefaultScheduler();
 		List<CompletableFuture<Void>> futures = new ArrayList<CompletableFuture<Void>>();
-		for (int i = 0; i < 10; i++) {
+		for (int i = 0; i < 50; i++) {
 			futures.add(CompletableFuture.supplyAsync(() -> {
 				Job job = new SampleJob("failedJob");
 				Task task = new SuccessTask("sub-0"), successTask = new SuccessTask("sub-0-0"),
