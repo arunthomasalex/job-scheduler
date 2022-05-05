@@ -53,7 +53,7 @@ public class JobServiceImpl implements JobService {
 			statement.setString(1, task.getTaskId());
 			statement.setString(2, task.getJobId());
 			statement.setString(3, task.getClass().getCanonicalName());
-			statement.setString(4, task.getTaskState().name());
+			statement.setString(4, task.getState().name());
 			statement.setDate(5, new Date(new java.util.Date().getTime()));
 			statement.setDate(6, null);
 			statement.execute();
@@ -103,7 +103,7 @@ public class JobServiceImpl implements JobService {
 					Task task = (Task) clazz.getConstructor().newInstance();
 					task.setTaskId(taskId);
 					task.setJobId(rs.getString("JOBID"));
-					task.setTaskState(TaskState.valueOf(rs.getString("STATE")));
+					task.setState(TaskState.valueOf(rs.getString("STATE")));
 					return task;
 				}
 			}
@@ -129,7 +129,7 @@ public class JobServiceImpl implements JobService {
 					Task task = (Task) clazz.getConstructor().newInstance();
 					task.setTaskId(rs.getString("ID"));
 					task.setJobId(jobId);
-					task.setTaskState(TaskState.valueOf(rs.getString("STATE")));
+					task.setState(TaskState.valueOf(rs.getString("STATE")));
 					tasks.add(task);
 				}
 
@@ -163,7 +163,7 @@ public class JobServiceImpl implements JobService {
 		String sql = "UPDATE TASKS SET STATE = ?, UPDATEDON = ? WHERE ID = ?";
 		try (Connection connection = DriverManager.getConnection(dbUrl);
 				PreparedStatement statement = connection.prepareStatement(sql)) {
-			statement.setString(1, task.getTaskState().name());
+			statement.setString(1, task.getState().name());
 			statement.setDate(2, new Date(new java.util.Date().getTime()));
 			statement.setString(3, task.getTaskId());
 			statement.execute();

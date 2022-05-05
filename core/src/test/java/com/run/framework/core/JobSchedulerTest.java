@@ -78,30 +78,29 @@ public class JobSchedulerTest {
 	private void testFailedJobCreationmultiple(int i) {
 		JobScheduler scheduler = JobScheduler.getDefaultScheduler();
 		Job job = new SampleJob(i + "-failedJob");
-		Task task = new SuccessTask("sub-0"), successTask = new SuccessTask("sub-1"),
-				failedTask = new FailTask("sub-2-0");
+		Task task = new SuccessTask("sub-0"), successTask = new SuccessTask("sub-0-0"),
+				failedTask = new FailTask("sub-0-0-0");
 		task.addDependentTask(successTask);
 		successTask.addDependentTask(failedTask);
-		failedTask.addDependentTask(new SuccessTask("sub-3"));
-		successTask.addDependentTask(new SuccessTask("sub-2-1"));
+		failedTask.addDependentTask(new SuccessTask("sub-0-0-0-0"));
+		successTask.addDependentTask(new SuccessTask("sub-0-0-1"));
 		job.addTask(task);
 		scheduler.submit(job);
 		TestJobUtil.waitForJobState(job, JobState.FAILED);
 		String data0 = job.getTasks().get(0).getOutput().getData().toString();
-		String data1 = job.getTasks().get(0).getTasks().get(0).getOutput().getData().toString();
-		String data20 = job.getTasks().get(0).getTasks().get(0).getTasks().get(0).getOutput().getData().toString();
-		Object outputObj = job.getTasks().get(0).getTasks().get(0).getTasks().get(0).getTasks().get(0).getOutput();
-		String data21 = job.getTasks().get(0).getTasks().get(0).getTasks().get(1).getOutput().getData().toString();
+		String data00 = job.getTasks().get(0).getTasks().get(0).getOutput().getData().toString();
+		String data000 = job.getTasks().get(0).getTasks().get(0).getTasks().get(0).getOutput().getData().toString();
+		Object data0000 = job.getTasks().get(0).getTasks().get(0).getTasks().get(0).getTasks().get(0).getOutput();
+		String data001 = job.getTasks().get(0).getTasks().get(0).getTasks().get(1).getOutput().getData().toString();
 		assertTrue(data0.startsWith(i + "-failedJob-sub-0"));
 		assertTrue(data0.endsWith("Success"));
-		assertTrue(data1.startsWith(i + "-failedJob-sub-1"));
-		assertTrue(data1.endsWith("Success"));
-		assertTrue(data20.startsWith(i + "-failedJob-sub-2-0"));
-		assertTrue(data20.endsWith("Failed"));
-		assertTrue(data21.startsWith(i + "-failedJob-sub-2-1"));
-		assertTrue(data21.endsWith("Success"));
-		assertNull(outputObj);
-		printJobTasksOutput(job);
+		assertTrue(data00.startsWith(i + "-failedJob-sub-0-0"));
+		assertTrue(data00.endsWith("Success"));
+		assertTrue(data000.startsWith(i + "-failedJob-sub-0-0-0"));
+		assertTrue(data000.endsWith("Failed"));
+		assertTrue(data001.startsWith(i + "-failedJob-sub-0-0-1"));
+		assertTrue(data001.endsWith("Success"));
+		assertNull(data0000);
 	}
 
 	@Test

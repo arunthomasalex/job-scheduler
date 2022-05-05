@@ -69,25 +69,9 @@ public class JobConfig implements DynamicMBean {
 			Optional<String> action = Arrays.stream(params).map(Object::toString)
 					.filter(param -> !param.equals("String")).findFirst();
 			if (action.isPresent())
-				processJobSchedulerAction(action.get());
+				return processJobSchedulerAction(action.get());
 		}
 		return "Invalid method.";
-	}
-
-	private String processJobSchedulerAction(String action) {
-		switch (action) {
-		case "start":
-			scheduler.startScheduler();
-			return "Started job scheduler.";
-		case "stop":
-			scheduler.stopScheduler();
-			return "Stopped job scheduler.";
-		case "forceStop":
-			scheduler.forceStopScheduler();
-			return "Stopped job scheduler.";
-		default:
-			return "Invalid action.";
-		}
 	}
 
 	@Override
@@ -111,6 +95,22 @@ public class JobConfig implements DynamicMBean {
 		}).collect(Collectors.toList()).toArray(MBeanAttributeInfo[]::new);
 		return new MBeanInfo(JobScheduler.class.getCanonicalName(), "Fetch job related datas.", attributeInfo, null,
 				new MBeanOperationInfo[] { schedulerAction }, null);
+	}
+
+	private String processJobSchedulerAction(String action) {
+		switch (action) {
+		case "start":
+			scheduler.startScheduler();
+			return "Started job scheduler.";
+		case "stop":
+			scheduler.stopScheduler();
+			return "Stopped job scheduler.";
+		case "forceStop":
+			scheduler.forceStopScheduler();
+			return "Stopped job scheduler.";
+		default:
+			return "Invalid action.";
+		}
 	}
 
 }

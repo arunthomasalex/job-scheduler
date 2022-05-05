@@ -5,5 +5,5 @@ package com.run.framework.job.core;
  *
  */
 public enum JobState {
-	STARTED, EXECUTING, COMPLETED, FAILED
+	STARTED, EXECUTING, STALLED, COMPLETED, FAILED
 }

@@ -63,7 +63,7 @@ public abstract class Job {
 
 	private boolean checkAllTaskSuccessful(List<Task> jobTasks) {
 		for(Task task : jobTasks) {
-			if(task.getTaskState() == TaskState.FINISHED) {
+			if(task.getState() == TaskState.FINISHED) {
 				return checkAllTaskSuccessful(task.getTasks());
 			} else {
 				return false;

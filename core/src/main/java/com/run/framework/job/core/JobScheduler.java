@@ -10,6 +10,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
@@ -77,50 +78,61 @@ public class JobScheduler {
 	}
 
 	public void startScheduler() {
-		daemonService = Executors.newSingleThreadScheduledExecutor();
-		daemonService.scheduleAtFixedRate(() -> {
-			boolean isLockAvailable = false;
-			try {
-				isLockAvailable = lock.tryLock(1, TimeUnit.SECONDS);
-				if (isLockAvailable) {
-					ListIterator<Job> jobIter = jobs.listIterator();
-					while (jobIter.hasNext()) {
-						Job job = jobIter.next();
-						try {
-							boolean jobCompleted = true;
-							for (Task task : job.getTasks()) {
-								boolean status = createSubTasksIfDone(task, job);
-								if (!status) {
-									jobCompleted = status;
+		if (daemonService == null || daemonService.isTerminated()) {
+			changeJobsStatus(JobState.STALLED, JobState.EXECUTING);
+			daemonService = Executors.newSingleThreadScheduledExecutor();
+			daemonService.scheduleAtFixedRate(() -> {
+				boolean isLockAvailable = false;
+				try {
+					isLockAvailable = lock.tryLock(1, TimeUnit.SECONDS);
+					if (isLockAvailable) {
+						ListIterator<Job> jobIter = jobs.listIterator();
+						while (jobIter.hasNext()) {
+							Job job = jobIter.next();
+							try {
+								boolean jobCompleted = true;
+								for (Task task : job.getTasks()) {
+									boolean status = createSubTasksIfDone(task, job);
+									if (!status) {
+										jobCompleted = status;
+									}
 								}
-							}
-							if (jobCompleted) {
-								if (job.isSuccessful()) {
-									job.onComplete();
-									changeJobStatus(job, JobState.COMPLETED);
-								} else {
-									job.onFailure();
-									changeJobStatus(job, JobState.FAILED);
+								if (jobCompleted) {
+									if (job.isSuccessful()) {
+										job.onComplete();
+										changeJobStatus(job, JobState.COMPLETED);
+									} else {
+										job.onFailure();
+										changeJobStatus(job, JobState.FAILED);
+									}
+									removeAllTaskDependencies(job.getTasks());
+									jobIter.remove();
 								}
-								removeAllTaskDependencies(job.getTasks());
-								jobIter.remove();
+							} catch (Throwable t) {
+								t.printStackTrace();
 							}
-						} catch (Throwable t) {
-							t.printStackTrace();
 						}
 					}
+				} catch (InterruptedException e) {
+					e.printStackTrace();
+				} finally {
+					if (isLockAvailable)
+						lock.unlock();
 				}
-			} catch (InterruptedException e) {
-				e.printStackTrace();
-			} finally {
-				if (isLockAvailable)
-					lock.unlock();
-			}
-		}, 0, Long.valueOf(configuration.getProperty("config.daemon.interval", "1")), TimeUnit.SECONDS);
+			}, 0, Long.valueOf(configuration.getProperty("config.daemon.interval", "1")), TimeUnit.SECONDS);
+		}
 	}
 
 	public void stopScheduler() {
 		if (daemonService != null) {
+			changeJobsStatus(JobState.EXECUTING, JobState.STALLED);
+			daemonService.shutdown();
+		}
+	}
+
+	public void forceStopScheduler() {
+		if (daemonService != null) {
+			changeJobsStatus(JobState.EXECUTING, JobState.STALLED);
 			List<Runnable> runnables = daemonService.shutdownNow();
 			for (Runnable runnable : runnables) {
 				runnable.notifyAll();
@@ -128,14 +140,31 @@ public class JobScheduler {
 		}
 	}
 
-	public void forceStopScheduler() {
-		if (daemonService != null) {
-			daemonService.shutdown();
-		}
+	private void changeJobsStatus(JobState from, JobState to) {
+		jobs.stream().filter(job -> job.getState() == from).forEach(job -> {
+			job.setState(to);
+			changeJobStatus(job, to);
+		});
 	}
 
 	public Map<String, String> getActiveJobStatus() {
 		return jobs.stream().collect(Collectors.toMap(Job::getJobId, job -> job.getState().name()));
+	}
+
+	public Map<String, Map<String, String>> getActiveJobTaskStatus() {
+		Map<String, Map<String, String>> data = new HashMap<String, Map<String, String>>();
+		for (Job job : jobs) {
+			Map<String, String> taskStatus = new HashMap<String, String>();
+			iterateTaskStatus(taskStatus, job.getTasks());
+			data.put(job.getJobId(), taskStatus);
+		}
+		return data;
+	}
+
+	private void iterateTaskStatus(Map<String, String> taskStatus, List<Task> tasks) {
+		for (Task task : tasks) {
+			taskStatus.put(task.getTaskId(), task.getState().name());
+		}
 	}
 
 	/**
@@ -170,29 +199,29 @@ public class JobScheduler {
 	 *         remaining or if a task failed.
 	 */
 	private boolean createSubTasksIfDone(Task task, Job job) {
-		if (task.getTaskState() == TaskState.STARTED) {
+		if (task.getState() == TaskState.STARTED) {
 			changeTaskStatus(task, TaskState.EXECUTING);
-		} else if (task.getTaskState() == TaskState.EXECUTED) {
+		} else if (task.getState() == TaskState.EXECUTED) {
 			updateTaskStatus(task);
 			task.onComplete();
 			changeTaskStatus(task, TaskState.COMPLETED);
 			removeFromTaskDependencies(task, task.getTasks());
 			initiateTasks(task.getTasks());
-		} else if (task.getTaskState() == TaskState.COMPLETED) {
+		} else if (task.getState() == TaskState.COMPLETED) {
 			changeTaskStatus(task, TaskState.FINISHED);
 			return createSubTasksIfDone(task, job);
-		} else if (task.getTaskState() == TaskState.FINISHED) {
+		} else if (task.getState() == TaskState.FINISHED) {
 			boolean status = true;
 			for (Task sub : task.getTasks()) {
 				status = createSubTasksIfDone(sub, job);
 				if (!status)
 					return status;
 			}
-		} else if (task.getTaskState() == TaskState.FAILING) {
+		} else if (task.getState() == TaskState.FAILING) {
 			task.onFailure();
 			changeTaskStatus(task, TaskState.FAILED);
 		}
-		return task.getTaskState() == TaskState.FINISHED || task.getTaskState() == TaskState.FAILED;
+		return task.getState() == TaskState.FINISHED || task.getState() == TaskState.FAILED;
 	}
 
 	/**
@@ -312,7 +341,7 @@ public class JobScheduler {
 	 * @param state New task state
 	 */
 	private void changeTaskStatus(Task task, TaskState state) {
-		task.setTaskState(state);
+		task.setState(state);
 		updateTaskStatus(task);
 	}
 
@@ -322,7 +351,7 @@ public class JobScheduler {
 	 * @param task Task object
 	 */
 	private void updateTaskStatus(Task task) {
-		if (task.getTaskState() == TaskState.EXECUTING) {
+		if (task.getState() == TaskState.EXECUTING) {
 			jobService.insertTask(task);
 		} else {
 			jobService.updateTask(task);

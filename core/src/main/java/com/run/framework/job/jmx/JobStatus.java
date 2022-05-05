@@ -16,4 +16,9 @@ public class JobStatus implements JobStatusMBean {
 		return scheduler.getActiveJobStatus();
 	}
 
+	@Override
+	public Map<String, Map<String, String>> getActiveJobTasks() {
+		return scheduler.getActiveJobTaskStatus();
+	}
+
 }

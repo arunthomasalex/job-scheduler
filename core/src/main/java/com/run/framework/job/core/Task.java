@@ -18,7 +18,7 @@ public abstract class Task implements Runnable {
 	private TaskOutput output;
 	private TaskState taskState;
 
-	public TaskState getTaskState() {
+	public TaskState getState() {
 		return taskState;
 	}
 	
@@ -47,7 +47,7 @@ public abstract class Task implements Runnable {
 		return output;
 	}
 	
-	public void setTaskState(TaskState state) {
+	public void setState(TaskState state) {
 		this.taskState = state;
 	}
 

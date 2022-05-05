@@ -50,7 +50,7 @@ public class JobServiceImplTest {
 		Task task = new SuccessTask();
 		task.setTaskId("12");
 		task.setJobId("123");
-		task.setTaskState(TaskState.STARTED);
+		task.setState(TaskState.STARTED);
 		JobService jobService = new JobServiceImpl();
 		boolean status = jobService.insertTask(task);
 		assertTrue(status);
@@ -77,12 +77,12 @@ public class JobServiceImplTest {
 		Task task = new SuccessTask();
 		task.setTaskId("1");
 		task.setJobId("1");
-		task.setTaskState(TaskState.STARTED);
+		task.setState(TaskState.STARTED);
 		jobService.insertTask(task);
 		task = new SuccessTask();
 		task.setTaskId("2");
 		task.setJobId("1");
-		task.setTaskState(TaskState.STARTED);
+		task.setState(TaskState.STARTED);
 		jobService.insertTask(task);
 		List<Task> tasks = jobService.readTasks("1");
 		assertEquals(tasks.size(), 2);
