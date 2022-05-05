@@ -44,11 +44,10 @@ public class AsyncResult {
 	private static ExecutorService executorService = Executors.newWorkStealingPool(1);
 
 	/**
-	 * This is the main static method which is used to register asynchronous task to
+	 * * This is the main static method which is used to register asynchronous task to
 	 * wait for response from the task.
 	 * 
-	 * @param task is the Task object.
-	 * @return Nothing.
+	 * @param task {@link Task}.
 	 */
 	public static void awaitResult(Task task) {
 		boolean start = false;
@@ -76,7 +75,6 @@ public class AsyncResult {
 	 * tasks. This method receives response from the task and send back
 	 * acknowledgement as 200 to the task .
 	 * 
-	 * @param Nothing.
 	 * @return Consumer<Socket> lambda object.
 	 */
 	private static Consumer<Socket> generateConsumerTask() {
@@ -127,9 +125,6 @@ public class AsyncResult {
 	 * This is a private method that checks is there is any more task pending to
 	 * send the response back, if there is none left then it will send an
 	 * acknowledgement back to itself to stop waiting for anymore requests.
-	 * 
-	 * @param Nothing.
-	 * @return Nothing.
 	 */
 	private static synchronized void checkIfTasksCompleted() {
 		if (tasksMap.size() == 0) {
