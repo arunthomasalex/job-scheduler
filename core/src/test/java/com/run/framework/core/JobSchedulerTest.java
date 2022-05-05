@@ -4,8 +4,11 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+//import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 import org.junit.Test;
 
@@ -56,51 +59,58 @@ public class JobSchedulerTest {
 		assertTrue(data002.contains("Success"));
 	}
 
-	private void printAllOutputs(List<Task> tasks) {
-		for (Task task : tasks) {
-			if (task.getOutput() != null) {
-				System.out.println(task.getOutput().getData());
-			}
-			printAllOutputs(task.getTasks());
-		}
-	}
-	
-	private void printJobTasksOutput(Job job) {
-		printAllOutputs(job.getTasks());
-	}
+//	private void printAllOutputs(List<Task> tasks) {
+//		for (Task task : tasks) {
+//			if (task.getOutput() != null) {
+//				System.out.println(task.getOutput().getData());
+//			}
+//			printAllOutputs(task.getTasks());
+//		}
+//	}
+//	
+//	private void printJobTasksOutput(Job job) {
+//		printAllOutputs(job.getTasks());
+//	}
 
 	@Test
 	public void testFailedJobCreation() throws InterruptedException {
-		for (int i = 0; i < 10; i++)
-			testFailedJobCreationmultiple(i);
-	}
-
-	private void testFailedJobCreationmultiple(int i) {
+		System.out.println("Entered");
+		Thread.sleep(5000);
 		JobScheduler scheduler = JobScheduler.getDefaultScheduler();
-		Job job = new SampleJob(i + "-failedJob");
-		Task task = new SuccessTask("sub-0"), successTask = new SuccessTask("sub-0-0"),
-				failedTask = new FailTask("sub-0-0-0");
-		task.addDependentTask(successTask);
-		successTask.addDependentTask(failedTask);
-		failedTask.addDependentTask(new SuccessTask("sub-0-0-0-0"));
-		successTask.addDependentTask(new SuccessTask("sub-0-0-1"));
-		job.addTask(task);
-		scheduler.submit(job);
-		TestJobUtil.waitForJobState(job, JobState.FAILED);
-		String data0 = job.getTasks().get(0).getOutput().getData().toString();
-		String data00 = job.getTasks().get(0).getTasks().get(0).getOutput().getData().toString();
-		String data000 = job.getTasks().get(0).getTasks().get(0).getTasks().get(0).getOutput().getData().toString();
-		Object data0000 = job.getTasks().get(0).getTasks().get(0).getTasks().get(0).getTasks().get(0).getOutput();
-		String data001 = job.getTasks().get(0).getTasks().get(0).getTasks().get(1).getOutput().getData().toString();
-		assertTrue(data0.startsWith(i + "-failedJob-sub-0"));
-		assertTrue(data0.endsWith("Success"));
-		assertTrue(data00.startsWith(i + "-failedJob-sub-0-0"));
-		assertTrue(data00.endsWith("Success"));
-		assertTrue(data000.startsWith(i + "-failedJob-sub-0-0-0"));
-		assertTrue(data000.endsWith("Failed"));
-		assertTrue(data001.startsWith(i + "-failedJob-sub-0-0-1"));
-		assertTrue(data001.endsWith("Success"));
-		assertNull(data0000);
+		List<CompletableFuture<Void>> futures = new ArrayList<CompletableFuture<Void>>();
+		for (int i = 0; i < 10; i++) {
+			futures.add(CompletableFuture.supplyAsync(() -> {
+				Job job = new SampleJob("failedJob");
+				Task task = new SuccessTask("sub-0"), successTask = new SuccessTask("sub-0-0"),
+						failedTask = new FailTask("sub-0-0-0");
+				task.addDependentTask(successTask);
+				successTask.addDependentTask(failedTask);
+				failedTask.addDependentTask(new SuccessTask("sub-0-0-0-0"));
+				successTask.addDependentTask(new SuccessTask("sub-0-0-1"));
+				job.addTask(task);
+				scheduler.submit(job);
+				TestJobUtil.waitForJobState(job, JobState.FAILED);
+				return job;
+			}).thenAccept(job -> {
+				String data0 = job.getTasks().get(0).getOutput().getData().toString();
+				String data00 = job.getTasks().get(0).getTasks().get(0).getOutput().getData().toString();
+				String data000 = job.getTasks().get(0).getTasks().get(0).getTasks().get(0).getOutput().getData().toString();
+				Object data0000 = job.getTasks().get(0).getTasks().get(0).getTasks().get(0).getTasks().get(0).getOutput();
+				String data001 = job.getTasks().get(0).getTasks().get(0).getTasks().get(1).getOutput().getData().toString();
+				assertTrue(data0.startsWith("failedJob-sub-0"));
+				assertTrue(data0.endsWith("Success"));
+				assertTrue(data00.startsWith("failedJob-sub-0-0"));
+				assertTrue(data00.endsWith("Success"));
+				assertTrue(data000.startsWith("failedJob-sub-0-0-0"));
+				assertTrue(data000.endsWith("Failed"));
+				assertTrue(data001.startsWith("failedJob-sub-0-0-1"));
+				assertTrue(data001.endsWith("Success"));
+				assertNull(data0000);
+			}));
+		}
+		for(CompletableFuture<Void> future : futures) {
+			while(!future.isDone());
+		}
 	}
 
 	@Test
