@@ -30,53 +30,50 @@ public class JobSchedulerTest {
 	@Test
 	public void testSuccessJobCreation() throws InterruptedException {
 		JobScheduler scheduler = JobScheduler.getDefaultScheduler();
-		Job job = new SampleJob("successJob");
-		Task task = new SuccessTask("sub-0"), sub;
-		job.addTask(task);
-		sub = new SuccessTask("sub-0-0");
-		task.addDependentTasks(Arrays.asList(sub, new SuccessTask("sub-0-1")));
-		task = new SuccessTask("sub-0-0-0");
-		sub.addDependentTasks(Arrays.asList(task, new SuccessTask("sub-0-0-1"), new SuccessTask("sub-0-0-2")));
-		scheduler.submit(job);
-		TestJobUtil.waitForJobState(job, JobState.COMPLETED);
-		String data0 = job.getTasks().get(0).getOutput().getData().toString();
-		String data00 = job.getTasks().get(0).getTasks().get(0).getOutput().getData().toString();
-		String data01 = job.getTasks().get(0).getTasks().get(1).getOutput().getData().toString();
-		String data000 = job.getTasks().get(0).getTasks().get(0).getTasks().get(0).getOutput().getData().toString();
-		String data001 = job.getTasks().get(0).getTasks().get(0).getTasks().get(1).getOutput().getData().toString();
-		String data002 = job.getTasks().get(0).getTasks().get(0).getTasks().get(2).getOutput().getData().toString();
-		assertTrue(data0.contains("successJob-sub-0"));
-		assertTrue(data0.contains("Success"));
-		assertTrue(data00.contains("successJob-sub-0-0"));
-		assertTrue(data00.contains("Success"));
-		assertTrue(data01.contains("successJob-sub-0-1"));
-		assertTrue(data01.contains("Success"));
-		assertTrue(data000.contains("successJob-sub-0-0-0"));
-		assertTrue(data000.contains("Success"));
-		assertTrue(data001.contains("successJob-sub-0-0-1"));
-		assertTrue(data001.contains("Success"));
-		assertTrue(data002.contains("successJob-sub-0-0-2"));
-		assertTrue(data002.contains("Success"));
+		List<CompletableFuture<Void>> futures = new ArrayList<CompletableFuture<Void>>();
+		for (int i = 0; i < 10; i++) {
+			futures.add(CompletableFuture.supplyAsync(() -> {
+				Job job = new SampleJob("successJob");
+				Task task = new SuccessTask("sub-0"), sub;
+				job.addTask(task);
+				sub = new SuccessTask("sub-0-0");
+				task.addDependentTasks(Arrays.asList(sub, new SuccessTask("sub-0-1")));
+				task = new SuccessTask("sub-0-0-0");
+				sub.addDependentTasks(Arrays.asList(task, new SuccessTask("sub-0-0-1"), new SuccessTask("sub-0-0-2")));
+				scheduler.submit(job);
+				TestJobUtil.waitForJobState(job, JobState.COMPLETED);
+				return job;
+			}).thenAccept(job -> {
+				String data0 = job.getTasks().get(0).getOutput().getData().toString();
+				String data00 = job.getTasks().get(0).getTasks().get(0).getOutput().getData().toString();
+				String data01 = job.getTasks().get(0).getTasks().get(1).getOutput().getData().toString();
+				String data000 = job.getTasks().get(0).getTasks().get(0).getTasks().get(0).getOutput().getData().toString();
+				String data001 = job.getTasks().get(0).getTasks().get(0).getTasks().get(1).getOutput().getData().toString();
+				String data002 = job.getTasks().get(0).getTasks().get(0).getTasks().get(2).getOutput().getData().toString();
+				assertTrue(data0.contains("successJob-sub-0"));
+				assertTrue(data0.contains("Success"));
+				assertTrue(data00.contains("successJob-sub-0-0"));
+				assertTrue(data00.contains("Success"));
+				assertTrue(data01.contains("successJob-sub-0-1"));
+				assertTrue(data01.contains("Success"));
+				assertTrue(data000.contains("successJob-sub-0-0-0"));
+				assertTrue(data000.contains("Success"));
+				assertTrue(data001.contains("successJob-sub-0-0-1"));
+				assertTrue(data001.contains("Success"));
+				assertTrue(data002.contains("successJob-sub-0-0-2"));
+				assertTrue(data002.contains("Success"));
+			}));
+		}
+		for(CompletableFuture<Void> future : futures) {
+			while(!future.isDone());
+		}
 	}
-
-//	private void printAllOutputs(List<Task> tasks) {
-//		for (Task task : tasks) {
-//			if (task.getOutput() != null) {
-//				System.out.println(task.getOutput().getData());
-//			}
-//			printAllOutputs(task.getTasks());
-//		}
-//	}
-//	
-//	private void printJobTasksOutput(Job job) {
-//		printAllOutputs(job.getTasks());
-//	}
 
 	@Test
 	public void testFailedJobCreation() throws InterruptedException {
 		JobScheduler scheduler = JobScheduler.getDefaultScheduler();
 		List<CompletableFuture<Void>> futures = new ArrayList<CompletableFuture<Void>>();
-		for (int i = 0; i < 50; i++) {
+		for (int i = 0; i < 10; i++) {
 			futures.add(CompletableFuture.supplyAsync(() -> {
 				Job job = new SampleJob("failedJob");
 				Task task = new SuccessTask("sub-0"), successTask = new SuccessTask("sub-0-0"),

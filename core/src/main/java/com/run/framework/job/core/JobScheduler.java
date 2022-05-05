@@ -10,7 +10,6 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
@@ -18,6 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -51,8 +51,14 @@ public class JobScheduler {
 	private JobService jobService;
 	private static MBeanServer mBeanServer;
 	private ExecutorService executorService = Executors.newWorkStealingPool(Runtime.getRuntime().availableProcessors());
+	private ScheduledFuture<?> daemon;
+
+	/**
+	 * This scheduler is used handling cron job that are scheduled for execution in
+	 * future and also the daemon task that is initialized in {@link #startScheduler()}.
+	 */
 	private ScheduledExecutorService scheduledExecutorService = Executors.newScheduledThreadPool(1);
-	private ScheduledExecutorService daemonService;
+
 	private JobConfiguration configuration;
 
 	static {
@@ -82,10 +88,9 @@ public class JobScheduler {
 	}
 
 	public void startScheduler() {
-		if (daemonService == null || daemonService.isTerminated()) {
+		if (daemon == null || daemon.isCancelled()) {
 			changeJobsStatus(JobState.STALLED, JobState.EXECUTING);
-			daemonService = Executors.newSingleThreadScheduledExecutor();
-			daemonService.scheduleAtFixedRate(() -> {
+			daemon = scheduledExecutorService.scheduleAtFixedRate(() -> {
 				boolean isLockAvailable = false;
 				try {
 					isLockAvailable = daemonLock.tryLock(1, TimeUnit.SECONDS);
@@ -110,13 +115,13 @@ public class JobScheduler {
 										changeJobStatus(job, JobState.FAILED);
 									}
 									removeAllTaskDependencies(job.getTasks());
-
 									jobLock.writeLock().lock();
 									jobIter.remove();
 									jobLock.writeLock().unlock();
 								}
 							} catch (Throwable t) {
 								t.printStackTrace();
+								jobLock.writeLock().unlock();
 							}
 						}
 					}
@@ -131,19 +136,16 @@ public class JobScheduler {
 	}
 
 	public void stopScheduler() {
-		if (daemonService != null) {
+		if (daemon != null) {
 			changeJobsStatus(JobState.EXECUTING, JobState.STALLED);
-			daemonService.shutdown();
+			daemon.cancel(false);
 		}
 	}
 
 	public void forceStopScheduler() {
-		if (daemonService != null) {
+		if (daemon != null) {
 			changeJobsStatus(JobState.EXECUTING, JobState.STALLED);
-			List<Runnable> runnables = daemonService.shutdownNow();
-			for (Runnable runnable : runnables) {
-				runnable.notifyAll();
-			}
+			daemon.cancel(true);
 		}
 	}
 
@@ -165,30 +167,6 @@ public class JobScheduler {
 				jobLock.readLock().unlock();
 		}
 		return data;
-	}
-
-	public Map<String, Map<String, String>> getActiveJobTaskStatus() {
-		boolean entered = false;
-		Map<String, Map<String, String>> data = null;
-		try {
-			entered = jobLock.readLock().tryLock();
-			data = new HashMap<String, Map<String, String>>();
-			for (Job job : jobs) {
-				Map<String, String> taskStatus = new HashMap<String, String>();
-				iterateTaskStatus(taskStatus, job.getTasks());
-				data.put(job.getJobId(), taskStatus);
-			}
-		} finally {
-			if (entered)
-				jobLock.readLock().unlock();
-		}
-		return data;
-	}
-
-	private void iterateTaskStatus(Map<String, String> taskStatus, List<Task> tasks) {
-		for (Task task : tasks) {
-			taskStatus.put(task.getTaskId(), task.getState().name());
-		}
 	}
 
 	/**
@@ -428,7 +406,7 @@ public class JobScheduler {
 	 * 
 	 * @param job
 	 */
-	public void submit(Job job) {
+	public synchronized void submit(Job job) {
 		job.setJobId(generateId());
 		setTaskUniqueIds(job.getTasks(), job.getJobId());
 		for (Task task : job.getTasks()) {
