@@ -20,6 +20,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.Collectors;
 
 import javax.management.InstanceAlreadyExistsException;
 import javax.management.MBeanRegistrationException;
@@ -55,7 +56,7 @@ public class JobScheduler {
 		ObjectName jobStatus = null;
 		ObjectName jobConfig = null;
 		try {
-			jobStatus = new ObjectName("com.run.framework.jmx:type=JobDetails,group=configuration");
+			jobStatus = new ObjectName("com.run.framework.jmx:type=JobDetails");
 			jobConfig = new ObjectName("com.run.framework.jmx:type=JobConfig,group=configuration");
 			mBeanServer.registerMBean(new JobStatus(), jobStatus);
 			mBeanServer.registerMBean(new JobConfig(), jobConfig);
@@ -74,7 +75,7 @@ public class JobScheduler {
 		taskDependencies = new ConcurrentHashMap<String, List<String>>();
 		startScheduler();
 	}
-	
+
 	public void startScheduler() {
 		daemonService = Executors.newSingleThreadScheduledExecutor();
 		daemonService.scheduleAtFixedRate(() -> {
@@ -117,18 +118,24 @@ public class JobScheduler {
 			}
 		}, 0, Long.valueOf(configuration.getProperty("config.daemon.interval", "1")), TimeUnit.SECONDS);
 	}
-	
+
 	public void stopScheduler() {
-		if(daemonService != null) {
-			List<Runnable> runnables =  daemonService.shutdownNow();
-			for(Runnable runnable : runnables) {
+		if (daemonService != null) {
+			List<Runnable> runnables = daemonService.shutdownNow();
+			for (Runnable runnable : runnables) {
 				runnable.notifyAll();
 			}
 		}
 	}
 
-	public List<Job> getActiveJobs() {
-		return jobs;
+	public void forceStopScheduler() {
+		if (daemonService != null) {
+			daemonService.shutdown();
+		}
+	}
+
+	public Map<String, String> getActiveJobStatus() {
+		return jobs.stream().collect(Collectors.toMap(Job::getJobId, job -> job.getState().name()));
 	}
 
 	/**
@@ -249,13 +256,13 @@ public class JobScheduler {
 
 	/**
 	 * This method will execute the compute method of a job which start the
-	 * execution of job and change the state to {@value JobState#EXECUTED}.
+	 * execution of job and change the state to {@value JobState#EXECUTING}.
 	 * 
 	 * @param job Job object
 	 */
 	private void processJob(Job job) {
 		job.compute();
-		changeJobStatus(job, JobState.EXECUTED);
+		changeJobStatus(job, JobState.EXECUTING);
 	}
 
 	/**

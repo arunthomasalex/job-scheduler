@@ -64,16 +64,20 @@ public class JobSchedulerTest {
 			printAllOutputs(task.getTasks());
 		}
 	}
+	
+	private void printJobTasksOutput(Job job) {
+		printAllOutputs(job.getTasks());
+	}
 
 	@Test
 	public void testFailedJobCreation() throws InterruptedException {
 		for (int i = 0; i < 10; i++)
-			testFailedJobCreationmultiple();
+			testFailedJobCreationmultiple(i);
 	}
 
-	private void testFailedJobCreationmultiple() {
+	private void testFailedJobCreationmultiple(int i) {
 		JobScheduler scheduler = JobScheduler.getDefaultScheduler();
-		Job job = new SampleJob("failedJob");
+		Job job = new SampleJob(i + "-failedJob");
 		Task task = new SuccessTask("sub-0"), successTask = new SuccessTask("sub-1"),
 				failedTask = new FailTask("sub-2-0");
 		task.addDependentTask(successTask);
@@ -88,15 +92,16 @@ public class JobSchedulerTest {
 		String data20 = job.getTasks().get(0).getTasks().get(0).getTasks().get(0).getOutput().getData().toString();
 		Object outputObj = job.getTasks().get(0).getTasks().get(0).getTasks().get(0).getTasks().get(0).getOutput();
 		String data21 = job.getTasks().get(0).getTasks().get(0).getTasks().get(1).getOutput().getData().toString();
-		assertTrue(data0.startsWith("failedJob-sub-0"));
+		assertTrue(data0.startsWith(i + "-failedJob-sub-0"));
 		assertTrue(data0.endsWith("Success"));
-		assertTrue(data1.startsWith("failedJob-sub-1"));
+		assertTrue(data1.startsWith(i + "-failedJob-sub-1"));
 		assertTrue(data1.endsWith("Success"));
-		assertTrue(data20.startsWith("failedJob-sub-2-0"));
+		assertTrue(data20.startsWith(i + "-failedJob-sub-2-0"));
 		assertTrue(data20.endsWith("Failed"));
-		assertTrue(data21.startsWith("failedJob-sub-2-1"));
+		assertTrue(data21.startsWith(i + "-failedJob-sub-2-1"));
 		assertTrue(data21.endsWith("Success"));
 		assertNull(outputObj);
+		printJobTasksOutput(job);
 	}
 
 	@Test

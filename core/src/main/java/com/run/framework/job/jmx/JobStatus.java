@@ -1,14 +1,19 @@
 package com.run.framework.job.jmx;
 
-import java.util.stream.Collectors;
+import java.util.Map;
 
 import com.run.framework.job.core.JobScheduler;
 
 public class JobStatus implements JobStatusMBean {
+	private JobScheduler scheduler;
+
+	public JobStatus() {
+		this.scheduler = JobScheduler.getDefaultScheduler();
+	}
 
 	@Override
-	public String getActiveJobs() {
-		JobScheduler scheduler = JobScheduler.getDefaultScheduler();
-		return scheduler.getActiveJobs().stream().map(job -> job.getClass().getCanonicalName() + "(" + job.getJobId() + ")").collect(Collectors.joining(","));
+	public Map<String, String> getActiveJobs() {
+		return scheduler.getActiveJobStatus();
 	}
+
 }

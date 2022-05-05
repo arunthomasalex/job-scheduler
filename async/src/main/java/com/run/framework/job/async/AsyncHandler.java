@@ -12,11 +12,17 @@ import java.net.UnknownHostException;
 
 public class AsyncHandler {
 	private ServerSocket clientSocket;
+	private InetAddress serverUrl;
 
 	public AsyncHandler() throws IOException {
-//		clientSocket = new ServerSocket(AsyncConstant.CLIENT_PORT);
+		serverUrl = InetAddress.getLocalHost();
 		clientSocket = new ServerSocket(0);
 		clientSocket.setSoTimeout(AsyncConstant.ASYNC_TIMEOUT);
+	}
+	
+	public AsyncHandler(String serverAddress) throws IOException {
+		this();
+		this.serverUrl = InetAddress.getByName(serverAddress);
 	}
 
 	/**
@@ -49,7 +55,7 @@ public class AsyncHandler {
 	 */
 	private int sendData(AsyncResponse response, int trialCount) {
 		try {
-			try (Socket socket = new Socket(InetAddress.getLocalHost(), AsyncConstant.SERVER_PORT)) {
+			try (Socket socket = new Socket(serverUrl, AsyncConstant.SERVER_PORT)) {
 				trialCount++;
 				try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()))) {
 					writer.write(response.toString());

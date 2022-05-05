@@ -1,5 +1,7 @@
 package com.run.framework.job.jmx;
 
+import java.util.Map;
+
 public interface JobStatusMBean {
-	public String getActiveJobs();
+	public Map<String, String> getActiveJobs();
 }
