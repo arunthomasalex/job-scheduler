@@ -74,8 +74,6 @@ public class JobSchedulerTest {
 
 	@Test
 	public void testFailedJobCreation() throws InterruptedException {
-		System.out.println("Entered");
-		Thread.sleep(5000);
 		JobScheduler scheduler = JobScheduler.getDefaultScheduler();
 		List<CompletableFuture<Void>> futures = new ArrayList<CompletableFuture<Void>>();
 		for (int i = 0; i < 10; i++) {
