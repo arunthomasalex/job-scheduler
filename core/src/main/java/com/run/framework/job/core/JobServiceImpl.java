@@ -27,28 +27,58 @@ public class JobServiceImpl implements JobService {
 	}
 
 	@Override
+	public List<Job> readAll() {
+		List<Job> jobs = new ArrayList<Job>();
+		String sql = "SELECT ID, CLASS, STATE, CRON, PREVEXEC, NEXTEXEC FROM JOBS";
+		try (Connection connection = DriverManager.getConnection(dbUrl);
+				PreparedStatement statement = connection.prepareStatement(sql)) {
+			if (statement.execute()) {
+				ResultSet rs = statement.getResultSet();
+				while (rs.next()) {
+					String className = rs.getString("CLASS");
+					Class<?> clazz = Class.forName(className);
+					Job job = (Job) clazz.getConstructor().newInstance();
+					job.setJobId(rs.getString("ID"));
+					job.setState(JobState.valueOf(rs.getString("STATE")));
+					job.setCron(rs.getString("CRON"));
+					job.setPrevExec(rs.getString("PREVEXEC"));
+					job.setNextExec(rs.getString("NEXTEXEC"));
+					jobs.add(job);
+				}
+			}
+		} catch (SQLException | InstantiationException | IllegalAccessException | ClassNotFoundException
+				| IllegalArgumentException | InvocationTargetException | NoSuchMethodException | SecurityException e) {
+			e.printStackTrace();
+		}
+		return jobs;
+	}
+
+	@Override
 	public boolean insert(Job job) {
-		String sql = "INSERT INTO JOBS (ID, CLASS, STATE, PREVEXEC, NEXTEXEC, CREATEDON, UPDATEDON) VALUES (?, ?, ?, ?, ?, ?, ?)";
+		boolean status = false;
+		String sql = "INSERT INTO JOBS (ID, CLASS, STATE, CRON, PREVEXEC, NEXTEXEC, CREATEDON, UPDATEDON) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
 		try (Connection connection = DriverManager.getConnection(dbUrl);
 				PreparedStatement statement = connection.prepareStatement(sql)) {
 			statement.setString(1, job.getJobId());
 			statement.setString(2, job.getClass().getCanonicalName());
 			statement.setString(3, job.getState().name());
-			statement.setLong(4, job.getPrevExec());
-			statement.setLong(5, job.getNextExec());
-			statement.setDate(6, new Date(new java.util.Date().getTime()));
-			statement.setDate(7, null);
+			statement.setString(4, job.getCron());
+			statement.setString(5, job.getPrevExec());
+			statement.setString(6, job.getNextExec());
+			statement.setDate(7, new Date(new java.util.Date().getTime()));
+			statement.setDate(8, null);
 			statement.execute();
 			statement.closeOnCompletion();
-			return true;
+			status = true;
 		} catch (SQLException e) {
 			e.printStackTrace();
 		}
-		return false;
+		return status;
 	}
 
 	@Override
 	public boolean insertTask(Task task) {
+		boolean status = false;
 		String sql = "INSERT INTO TASKS (ID, JOBID, CLASS, STATE, CREATEDON, UPDATEDON) VALUES (?, ?, ?, ?, ?, ?)";
 		try (Connection connection = DriverManager.getConnection(dbUrl);
 				PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -60,16 +90,16 @@ public class JobServiceImpl implements JobService {
 			statement.setDate(6, null);
 			statement.execute();
 			statement.closeOnCompletion();
-			return true;
+			status = true;
 		} catch (SQLException e) {
 			e.printStackTrace();
 		}
-		return false;
+		return status;
 	}
 
 	@Override
 	public Job read(String jobId) {
-		String sql = "SELECT CLASS, STATE, PREVEXEC, NEXTEXEC FROM JOBS WHERE ID = ?";
+		String sql = "SELECT CLASS, STATE, CRON, PREVEXEC, NEXTEXEC FROM JOBS WHERE ID = ?";
 		try (Connection connection = DriverManager.getConnection(dbUrl);
 				PreparedStatement statement = connection.prepareStatement(sql)) {
 			statement.setString(1, jobId);
@@ -81,8 +111,9 @@ public class JobServiceImpl implements JobService {
 					Job job = (Job) clazz.getConstructor().newInstance();
 					job.setJobId(jobId);
 					job.setState(JobState.valueOf(rs.getString("STATE")));
-					job.setPrevExec(rs.getLong("PREVEXEC"));
-					job.setNextExec(rs.getLong("NEXTEXEC"));
+					job.setCron(rs.getString("CRON"));
+					job.setPrevExec(rs.getString("PREVEXEC"));
+					job.setNextExec(rs.getString("NEXTEXEC"));
 					return job;
 				}
 			}
@@ -148,24 +179,26 @@ public class JobServiceImpl implements JobService {
 
 	@Override
 	public boolean update(Job job) {
+		boolean status = false;
 		String sql = "UPDATE JOBS SET STATE = ?, PREVEXEC = ?, NEXTEXEC = ?, UPDATEDON = ? WHERE ID = ?";
 		try (Connection connection = DriverManager.getConnection(dbUrl);
 				PreparedStatement statement = connection.prepareStatement(sql)) {
 			statement.setString(1, job.getState().name());
-			statement.setLong(2, job.getPrevExec());
-			statement.setLong(3, job.getNextExec());
+			statement.setString(2, job.getPrevExec());
+			statement.setString(3, job.getNextExec());
 			statement.setDate(4, new Date(new java.util.Date().getTime()));
 			statement.setString(5, job.getJobId());
 			statement.execute();
-			return true;
+			status = true;
 		} catch (SQLException e) {
 			e.printStackTrace();
 		}
-		return false;
+		return status;
 	}
 
 	@Override
 	public boolean updateTask(Task task) {
+		boolean status = false;
 		String sql = "UPDATE TASKS SET STATE = ?, UPDATEDON = ? WHERE ID = ?";
 		try (Connection connection = DriverManager.getConnection(dbUrl);
 				PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -173,53 +206,135 @@ public class JobServiceImpl implements JobService {
 			statement.setDate(2, new Date(new java.util.Date().getTime()));
 			statement.setString(3, task.getTaskId());
 			statement.execute();
-			return true;
+			status = true;
 		} catch (SQLException e) {
 			e.printStackTrace();
 		}
-		return false;
+		return status;
 	}
 
 	@Override
 	public boolean delete(String jobId) {
+		boolean status = false;
 		String sql = "DELETE FROM JOBS WHERE ID = ?";
 		try (Connection connection = DriverManager.getConnection(dbUrl);
 				PreparedStatement statement = connection.prepareStatement(sql)) {
 			statement.setString(1, jobId);
 			statement.execute();
-			return true;
+			status = true;
 		} catch (SQLException e) {
 			e.printStackTrace();
 		}
-		return false;
+		return status;
 	}
 
 	@Override
 	public boolean deleteTask(String taskId) {
+		boolean status = false;
 		String sql = "DELETE FROM TASKS WHERE ID = ?";
 		try (Connection connection = DriverManager.getConnection(dbUrl);
 				PreparedStatement statement = connection.prepareStatement(sql)) {
 			statement.setString(1, taskId);
 			statement.execute();
-			return true;
+			status = true;
 		} catch (SQLException e) {
 			e.printStackTrace();
 		}
-		return false;
+		return status;
 	}
 
 	@Override
 	public boolean deleteTasks(String jobId) {
+		boolean status = false;
 		String sql = "DELETE FROM TASKS WHERE JOBID = ?";
 		try (Connection connection = DriverManager.getConnection(dbUrl);
 				PreparedStatement statement = connection.prepareStatement(sql)) {
 			statement.setString(1, jobId);
 			statement.execute();
-			return true;
+			status = true;
 		} catch (SQLException e) {
 			e.printStackTrace();
 		}
-		return false;
+		return status;
+	}
+
+	@Override
+	public boolean deleteJobTaskDependencies(String jobId) {
+		boolean status = false;
+		String sql = "DELETE FROM TASK_DEPENDENCIES WHERE JOBID = ?";
+		try (Connection connection = DriverManager.getConnection(dbUrl);
+				PreparedStatement statement = connection.prepareStatement(sql)) {
+			statement.setString(1, jobId);
+			statement.execute();
+			status = true;
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+		return status;
+	}
+
+	@Override
+	public boolean insertTaskDependency(TaskDependencies dependency) {
+		boolean status = false;
+		String sql = "INSERT INTO TASK_DEPENDENCIES (TASKID, DEPENDENTID, JOBID) VALUES (?, ?, ?)";
+		try (Connection connection = DriverManager.getConnection(dbUrl);
+				PreparedStatement statement = connection.prepareStatement(sql)) {
+			statement.setString(1, dependency.getTaskId());
+			statement.setString(2, dependency.getDependentId());
+			statement.setString(3, dependency.getJobId());
+			statement.execute();
+			statement.closeOnCompletion();
+			status = true;
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+		return status;
+	}
+
+	@Override
+	public List<TaskDependencies> readTaskDependencies(String taskId) {
+		List<TaskDependencies> dependencies = new ArrayList<TaskDependencies>();
+		String sql = "SELECT TASKID, DEPENDENTID, JOBID FROM TASK_DEPENDENCIES WHERE TASKID = ?";
+		try (Connection connection = DriverManager.getConnection(dbUrl);
+				PreparedStatement statement = connection.prepareStatement(sql)) {
+			statement.setString(1, taskId);
+			if (statement.execute()) {
+				ResultSet rs = statement.getResultSet();
+				while (rs.next()) {
+					TaskDependencies dependency = new TaskDependencies();
+					dependency.setTaskId(rs.getString("TASKID"));
+					dependency.setDependentId(rs.getString("DEPENDENTID"));
+					dependency.setJobId(rs.getString("JOBID"));
+					dependencies.add(dependency);
+				}
+			}
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+		return dependencies;
+	}
+
+	@Override
+	public List<TaskDependencies> readJobTaskDependencies(String jobId) {
+		List<TaskDependencies> dependencies = new ArrayList<TaskDependencies>();
+		String sql = "SELECT TASKID, DEPENDENTID, JOBID FROM TASK_DEPENDENCIES WHERE JOBID = ?";
+		try (Connection connection = DriverManager.getConnection(dbUrl);
+				PreparedStatement statement = connection.prepareStatement(sql)) {
+			statement.setString(1, jobId);
+			if (statement.execute()) {
+				ResultSet rs = statement.getResultSet();
+				while (rs.next()) {
+					TaskDependencies dependency = new TaskDependencies();
+					dependency.setTaskId(rs.getString("TASKID"));
+					dependency.setDependentId(rs.getString("DEPENDENTID"));
+					dependency.setJobId(rs.getString("JOBID"));
+					dependencies.add(dependency);
+				}
+			}
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+		return dependencies;
 	}
 
 }

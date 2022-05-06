@@ -15,8 +15,8 @@ public abstract class Job {
 	private String jobId;
 	private JobState state;
 	private String cron;
-	private Long prevExec = 0l;
-	private Long nextExec = 0l;
+	private String prevExec;
+	private String nextExec;
 	private List<Task> tasks = new ArrayList<Task>();
 
 	public JobState getState() {
@@ -55,19 +55,19 @@ public abstract class Job {
 		tasks.addAll(tasks);
 	}
 	
-	public Long getPrevExec() {
+	public String getPrevExec() {
 		return prevExec;
 	}
 
-	public void setPrevExec(Long prevExec) {
+	public void setPrevExec(String prevExec) {
 		this.prevExec = prevExec;
 	}
 
-	public Long getNextExec() {
+	public String getNextExec() {
 		return nextExec;
 	}
 
-	public void setNextExec(Long nextExec) {
+	public void setNextExec(String nextExec) {
 		this.nextExec = nextExec;
 	}
 

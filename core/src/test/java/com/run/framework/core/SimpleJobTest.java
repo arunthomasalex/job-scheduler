@@ -25,7 +25,7 @@ import com.run.framework.test.jobs.SampleJob;
 import com.run.framework.test.jobs.SuccessTask;
 import com.run.framework.test.util.TestJobUtil;
 
-public class JobSchedulerTest {
+public class SimpleJobTest {
 
 	@Test
 	public void testSuccessJobCreation() throws InterruptedException {

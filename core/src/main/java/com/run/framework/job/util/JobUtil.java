@@ -2,6 +2,7 @@ package com.run.framework.job.util;
 
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Date;
 
 import com.cronutils.model.Cron;
@@ -32,6 +33,20 @@ public final class JobUtil {
 		dateTime = time.nextExecution(dateTime).orElse(null);
 		if (dateTime != null) {
 			return (dateTime.toInstant().toEpochMilli() - now.toInstant().toEpochMilli());
+		} else {
+			throw new JobScheduleException("Could not schedule the cron job.");
+		}
+	}
+	
+	public static String nextExecutionDate(String cronExpression) {
+		Date now = new Date();
+		CronParser parser = new CronParser(CronDefinitionBuilder.instanceDefinitionFor(CronType.QUARTZ));
+		Cron cron = parser.parse(cronExpression);
+		ExecutionTime time = ExecutionTime.forCron(cron);
+		ZonedDateTime dateTime = ZonedDateTime.ofInstant(now.toInstant(), ZoneId.systemDefault());
+		dateTime = time.nextExecution(dateTime).orElse(null);
+		if (dateTime != null) {
+			return dateTime.format(DateTimeFormatter.ofPattern("MM/dd/yyyy HH:mm:ss Z"));
 		} else {
 			throw new JobScheduleException("Could not schedule the cron job.");
 		}

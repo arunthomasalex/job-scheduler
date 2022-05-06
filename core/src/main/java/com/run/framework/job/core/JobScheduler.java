@@ -10,9 +10,11 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -40,8 +42,8 @@ import com.run.framework.job.util.JobUtil;
  */
 public class JobScheduler {
 
-	private static JobScheduler defaultScheduler = new JobScheduler();
-
+	private static JobScheduler defaultScheduler = new JobScheduler("Default");
+	private String schedulerName;
 	private List<Job> jobs;
 	private Map<String, List<String>> taskDependencies;
 	private Lock daemonLock, jobLock;
@@ -79,7 +81,8 @@ public class JobScheduler {
 		}
 	}
 
-	private JobScheduler() {
+	private JobScheduler(String name) {
+		schedulerName = name;
 		configuration = JobConfiguration.getConfigurations();
 		jobService = new JobServiceImpl();
 		daemonLock = new ReentrantLock();
@@ -90,7 +93,8 @@ public class JobScheduler {
 	}
 
 	public void startScheduler() {
-		if (daemon == null || daemon.isCancelled()) {
+		if (daemon == null || daemon.isDone()) {
+			loadScheduledJobs();
 			changeJobsStatus(JobState.STALLED, JobState.EXECUTING);
 			daemon = scheduledExecutorService.scheduleAtFixedRate(() -> {
 				boolean isLockAvailable = false;
@@ -133,17 +137,49 @@ public class JobScheduler {
 		}
 	}
 
+	private void loadScheduledJobs() {
+		Set<String> loadedJobs = jobs.stream().map(Job::getJobId).collect(Collectors.toSet());
+		List<Job> persistedJobs = jobService.readAll();
+		for (Job job : persistedJobs) {
+			if (job.isScheduled() && !loadedJobs.contains(job.getJobId())) {
+				Map<String, Task> jobTasks = new HashMap<String, Task>();
+				for (Task task : jobService.readTasks(job.getJobId())) {
+					jobTasks.put(task.getTaskId(), task);
+				}
+				Map<String, Set<String>> taskDep = jobService.readJobTaskDependencies(job.getJobId()).stream()
+						.collect(Collectors.groupingBy(TaskDependencies::getTaskId,
+								Collectors.mapping(TaskDependencies::getDependentId, Collectors.toSet())));
+				loadJobTask(job.getTasks(), jobTasks, taskDep, "0");
+				submit(job);
+			}
+		}
+	}
+
+	private void loadJobTask(List<Task> tasks, Map<String, Task> jobTasks, Map<String, Set<String>> taskDep,
+			String taskId) {
+		Set<String> taskIds = taskDep.get(taskId);
+		if (taskIds != null)
+			for (String id : taskIds) {
+				Task task = jobTasks.get(id);
+				tasks.add(task);
+				loadJobTask(task.getTasks(), jobTasks, taskDep, task.getTaskId());
+			}
+	}
+
+	private void stopScheduler(boolean flag) {
+		daemon.cancel(flag);
+		changeJobsStatus(JobState.EXECUTING, JobState.STALLED);
+	}
+
 	public void stopScheduler() {
-		if (daemon != null) {
-			changeJobsStatus(JobState.EXECUTING, JobState.STALLED);
-			daemon.cancel(false);
+		if (daemon != null && !daemon.isDone()) {
+			stopScheduler(false);
 		}
 	}
 
 	public void forceStopScheduler() {
-		if (daemon != null) {
-			changeJobsStatus(JobState.EXECUTING, JobState.STALLED);
-			daemon.cancel(true);
+		if (daemon != null && !daemon.isDone()) {
+			stopScheduler(true);
 		}
 	}
 
@@ -152,19 +188,6 @@ public class JobScheduler {
 			job.setState(to);
 			changeJobStatus(job, to, job.isScheduled());
 		});
-	}
-
-	public Map<String, String> getActiveJobStatus() {
-		boolean entered = false;
-		Map<String, String> data = null;
-		try {
-			entered = jobLock.tryLock();
-			data = jobs.stream().collect(Collectors.toMap(Job::getJobId, job -> job.getState().name()));
-		} finally {
-			if (entered)
-				jobLock.unlock();
-		}
-		return data;
 	}
 
 	/**
@@ -327,7 +350,7 @@ public class JobScheduler {
 		if (job.getState() == JobState.STARTED) {
 			job.setPrevExec(job.getNextExec());
 			if (scheduled) {
-				job.setNextExec(JobUtil.nextExecutionTime(job.getCron()));
+				job.setNextExec(JobUtil.nextExecutionDate(job.getCron()));
 				Job tmp = jobService.read(job.getJobId());
 				if (tmp != null) {
 					jobService.update(job);
@@ -335,10 +358,15 @@ public class JobScheduler {
 				}
 			}
 			jobService.insert(job);
+			addTaskDependencies(job.getTasks(), "0", job.getJobId());
 		} else if (job.getState() == JobState.COMPLETED && !scheduled) {
 			jobService.deleteTasks(job.getJobId());
+			jobService.deleteJobTaskDependencies(job.getJobId());
 			jobService.delete(job.getJobId());
 		} else {
+			if (job.getState() == JobState.FAILED && !scheduled) {
+				jobService.deleteJobTaskDependencies(job.getJobId());
+			}
 			jobService.update(job);
 		}
 	}
@@ -370,8 +398,17 @@ public class JobScheduler {
 				}
 			}
 			jobService.insertTask(task);
+			addTaskDependencies(task.getTasks(), task.getTaskId(), task.getJobId());
 		} else {
 			jobService.updateTask(task);
+		}
+	}
+
+	private void addTaskDependencies(List<Task> tasks, String taskId, String jobId) {
+		List<TaskDependencies> dependencies = tasks.stream()
+				.map(sub -> new TaskDependencies(taskId, sub.getTaskId(), jobId)).collect(Collectors.toList());
+		for (TaskDependencies dependency : dependencies) {
+			jobService.insertTaskDependency(dependency);
 		}
 	}
 
@@ -445,6 +482,25 @@ public class JobScheduler {
 		}
 	}
 
+	public Map<String, String> getActiveJobStatus() {
+		boolean entered = false;
+		Map<String, String> data = null;
+		try {
+			entered = jobLock.tryLock();
+			data = jobs.stream().collect(Collectors.toMap(Job::getJobId, job -> job.getState().name()));
+		} finally {
+			if (entered)
+				jobLock.unlock();
+		}
+		return data;
+	}
+
+	public Map<String, String> getJobschedulerStatus() {
+		Map<String, String> schedulerStatus = new HashMap<String, String>();
+		schedulerStatus.put(defaultScheduler.schedulerName, defaultScheduler.daemon.isDone() ? "Stopped" : "Running");
+		return schedulerStatus;
+	}
+
 	public static void main(String[] args) {
 		// connect
 		// 'jdbc:derby:/Users/arunalex/eclipse-workspace/job-scheduler/jobschedulerdb';
@@ -454,9 +510,11 @@ public class JobScheduler {
 			Connection conn = DriverManager.getConnection(dbUrl);
 			Statement stmt = conn.createStatement();
 			stmt.executeUpdate(
-					"CREATE TABLE JOBS (ID varchar(50), STATE varchar(30), CLASS varchar(255), PREVEXEC BIGINT, NEXTEXEC BIGINT, CREATEDON DATE, UPDATEDON DATE)");
+					"CREATE TABLE JOBS (ID varchar(50), STATE varchar(30), CLASS varchar(255), CRON varchar(30), PREVEXEC varchar(30), NEXTEXEC varchar(30), CREATEDON DATE, UPDATEDON DATE)");
 			stmt.executeUpdate(
 					"CREATE TABLE TASKS (ID varchar(50), JOBID varchar(50), STATE varchar(30), CLASS varchar(255), CREATEDON DATE, UPDATEDON DATE)");
+			stmt.executeUpdate(
+					"CREATE TABLE TASK_DEPENDENCIES (TASKID varchar(50), DEPENDENTID varchar(50), JOBID varchar(50))");
 			stmt.close();
 			conn.close();
 		} catch (SQLException e) {
