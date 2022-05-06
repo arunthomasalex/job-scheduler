@@ -20,9 +20,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 import javax.management.InstanceAlreadyExistsException;
@@ -46,16 +44,20 @@ public class JobScheduler {
 
 	private List<Job> jobs;
 	private Map<String, List<String>> taskDependencies;
-	private Lock daemonLock;
-	private ReadWriteLock jobLock;
+	private Lock daemonLock, jobLock;
 	private JobService jobService;
 	private static MBeanServer mBeanServer;
 	private ExecutorService executorService = Executors.newWorkStealingPool(Runtime.getRuntime().availableProcessors());
+
+	/**
+	 * Handler for the daemon job that can be used to start and stop the daemon job.
+	 */
 	private ScheduledFuture<?> daemon;
 
 	/**
 	 * This scheduler is used handling cron job that are scheduled for execution in
-	 * future and also the daemon task that is initialized in {@link #startScheduler()}.
+	 * future and also the daemon task that is initialized in
+	 * {@link #startScheduler()}.
 	 */
 	private ScheduledExecutorService scheduledExecutorService = Executors.newScheduledThreadPool(1);
 
@@ -81,7 +83,7 @@ public class JobScheduler {
 		configuration = JobConfiguration.getConfigurations();
 		jobService = new JobServiceImpl();
 		daemonLock = new ReentrantLock();
-		jobLock = new ReentrantReadWriteLock();
+		jobLock = new ReentrantLock();
 		jobs = Collections.synchronizedList(new ArrayList<Job>());
 		taskDependencies = new ConcurrentHashMap<String, List<String>>();
 		startScheduler();
@@ -95,41 +97,37 @@ public class JobScheduler {
 				try {
 					isLockAvailable = daemonLock.tryLock(1, TimeUnit.SECONDS);
 					if (isLockAvailable) {
+						jobLock.lock();
 						ListIterator<Job> jobIter = jobs.listIterator();
 						while (jobIter.hasNext()) {
 							Job job = jobIter.next();
-							try {
-								boolean jobCompleted = true;
-								for (Task task : job.getTasks()) {
-									boolean status = createSubTasksIfDone(task, job);
-									if (!status) {
-										jobCompleted = status;
-									}
+							boolean jobCompleted = true;
+							for (Task task : job.getTasks()) {
+								boolean status = createSubTasksIfDone(task, job);
+								if (!status) {
+									jobCompleted = status;
 								}
-								if (jobCompleted) {
-									if (job.isSuccessful()) {
-										job.onComplete();
-										changeJobStatus(job, JobState.COMPLETED);
-									} else {
-										job.onFailure();
-										changeJobStatus(job, JobState.FAILED);
-									}
-									removeAllTaskDependencies(job.getTasks());
-									jobLock.writeLock().lock();
-									jobIter.remove();
-									jobLock.writeLock().unlock();
+							}
+							if (jobCompleted) {
+								if (job.isSuccessful()) {
+									job.onComplete();
+									changeJobStatus(job, JobState.COMPLETED, job.isScheduled());
+								} else {
+									job.onFailure();
+									changeJobStatus(job, JobState.FAILED, job.isScheduled());
 								}
-							} catch (Throwable t) {
-								t.printStackTrace();
-								jobLock.writeLock().unlock();
+								removeAllTaskDependencies(job.getTasks());
+								jobIter.remove();
 							}
 						}
 					}
 				} catch (InterruptedException e) {
 					e.printStackTrace();
 				} finally {
-					if (isLockAvailable)
+					if (isLockAvailable) {
 						daemonLock.unlock();
+						jobLock.unlock();
+					}
 				}
 			}, 0, Long.valueOf(configuration.getProperty("config.daemon.interval", "1")), TimeUnit.SECONDS);
 		}
@@ -152,7 +150,7 @@ public class JobScheduler {
 	private void changeJobsStatus(JobState from, JobState to) {
 		jobs.stream().filter(job -> job.getState() == from).forEach(job -> {
 			job.setState(to);
-			changeJobStatus(job, to);
+			changeJobStatus(job, to, job.isScheduled());
 		});
 	}
 
@@ -160,11 +158,11 @@ public class JobScheduler {
 		boolean entered = false;
 		Map<String, String> data = null;
 		try {
-			entered = jobLock.readLock().tryLock();
+			entered = jobLock.tryLock();
 			data = jobs.stream().collect(Collectors.toMap(Job::getJobId, job -> job.getState().name()));
 		} finally {
 			if (entered)
-				jobLock.readLock().unlock();
+				jobLock.unlock();
 		}
 		return data;
 	}
@@ -202,15 +200,15 @@ public class JobScheduler {
 	 */
 	private boolean createSubTasksIfDone(Task task, Job job) {
 		if (task.getState() == TaskState.STARTED) {
-			changeTaskStatus(task, TaskState.EXECUTING);
+			changeTaskStatus(task, TaskState.EXECUTING, job.isScheduled());
 		} else if (task.getState() == TaskState.EXECUTED) {
-			updateTaskStatus(task);
+			updateTaskStatus(task, job.isScheduled());
 			task.onComplete();
-			changeTaskStatus(task, TaskState.COMPLETED);
+			changeTaskStatus(task, TaskState.COMPLETED, job.isScheduled());
 			removeFromTaskDependencies(task, task.getTasks());
 			initiateTasks(task.getTasks());
 		} else if (task.getState() == TaskState.COMPLETED) {
-			changeTaskStatus(task, TaskState.FINISHED);
+			changeTaskStatus(task, TaskState.FINISHED, job.isScheduled());
 			return createSubTasksIfDone(task, job);
 		} else if (task.getState() == TaskState.FINISHED) {
 			boolean status = true;
@@ -221,7 +219,7 @@ public class JobScheduler {
 			}
 		} else if (task.getState() == TaskState.FAILING) {
 			task.onFailure();
-			changeTaskStatus(task, TaskState.FAILED);
+			changeTaskStatus(task, TaskState.FAILED, job.isScheduled());
 		}
 		return task.getState() == TaskState.FINISHED || task.getState() == TaskState.FAILED;
 	}
@@ -248,9 +246,8 @@ public class JobScheduler {
 	 */
 	private void scheduleJob(Job job, boolean scheduled) {
 		if (scheduled) {
-			scheduledExecutorService.schedule(() -> {
-				initiateJob(job);
-			}, JobUtil.nextExecutionTime(job.getCron()), TimeUnit.MILLISECONDS);
+			scheduledExecutorService.schedule(() -> initiateJob(job), JobUtil.nextExecutionTime(job.getCron()),
+					TimeUnit.MILLISECONDS);
 		} else {
 			initiateJob(job);
 		}
@@ -293,7 +290,7 @@ public class JobScheduler {
 	 */
 	private void processJob(Job job) {
 		job.compute();
-		changeJobStatus(job, JobState.EXECUTING);
+		changeJobStatus(job, JobState.EXECUTING, job.isScheduled());
 	}
 
 	/**
@@ -303,7 +300,7 @@ public class JobScheduler {
 	 * @param job Job object
 	 */
 	private void addJob(Job job) {
-		changeJobStatus(job, JobState.STARTED);
+		changeJobStatus(job, JobState.STARTED, job.isScheduled());
 		jobs.add(job);
 	}
 
@@ -313,21 +310,32 @@ public class JobScheduler {
 	 * 
 	 * @param job   Job object
 	 * @param state new job state
+	 * @param b
 	 */
-	private void changeJobStatus(Job job, JobState state) {
+	private void changeJobStatus(Job job, JobState state, boolean scheduled) {
 		job.setState(state);
-		updateJobStatus(job);
+		updateJobStatus(job, scheduled);
 	}
 
 	/**
 	 * This method is used to add the job details to the database.
 	 * 
 	 * @param job
+	 * @param scheduled
 	 */
-	private void updateJobStatus(Job job) {
+	private void updateJobStatus(Job job, boolean scheduled) {
 		if (job.getState() == JobState.STARTED) {
+			job.setPrevExec(job.getNextExec());
+			if (scheduled) {
+				job.setNextExec(JobUtil.nextExecutionTime(job.getCron()));
+				Job tmp = jobService.read(job.getJobId());
+				if (tmp != null) {
+					jobService.update(job);
+					return;
+				}
+			}
 			jobService.insert(job);
-		} else if (job.getState() == JobState.COMPLETED) {
+		} else if (job.getState() == JobState.COMPLETED && !scheduled) {
 			jobService.deleteTasks(job.getJobId());
 			jobService.delete(job.getJobId());
 		} else {
@@ -342,9 +350,9 @@ public class JobScheduler {
 	 * @param task  Task Object
 	 * @param state New task state
 	 */
-	private void changeTaskStatus(Task task, TaskState state) {
+	private void changeTaskStatus(Task task, TaskState state, boolean scheduled) {
 		task.setState(state);
-		updateTaskStatus(task);
+		updateTaskStatus(task, scheduled);
 	}
 
 	/**
@@ -352,8 +360,15 @@ public class JobScheduler {
 	 * 
 	 * @param task Task object
 	 */
-	private void updateTaskStatus(Task task) {
+	private void updateTaskStatus(Task task, boolean scheduled) {
 		if (task.getState() == TaskState.EXECUTING) {
+			if (scheduled) {
+				Task tmp = jobService.readTask(task.getTaskId());
+				if (tmp != null) {
+					jobService.updateTask(task);
+					return;
+				}
+			}
 			jobService.insertTask(task);
 		} else {
 			jobService.updateTask(task);
@@ -367,7 +382,7 @@ public class JobScheduler {
 	 */
 	private synchronized String generateId() {
 		try {
-			Thread.sleep(10);
+			Thread.sleep(2);
 		} catch (InterruptedException e) {
 			e.printStackTrace();
 		}
@@ -431,13 +446,15 @@ public class JobScheduler {
 	}
 
 	public static void main(String[] args) {
+		// connect
+		// 'jdbc:derby:/Users/arunalex/eclipse-workspace/job-scheduler/jobschedulerdb';
 		String dbUrl = String.format("jdbc:derby:%s../../../jobschedulerdb;create=true",
 				JobServiceImpl.class.getProtectionDomain().getCodeSource().getLocation().getPath().toString());
 		try {
 			Connection conn = DriverManager.getConnection(dbUrl);
 			Statement stmt = conn.createStatement();
 			stmt.executeUpdate(
-					"CREATE TABLE JOBS (ID varchar(50), STATE varchar(30), CLASS varchar(255), CREATEDON DATE, UPDATEDON DATE)");
+					"CREATE TABLE JOBS (ID varchar(50), STATE varchar(30), CLASS varchar(255), PREVEXEC BIGINT, NEXTEXEC BIGINT, CREATEDON DATE, UPDATEDON DATE)");
 			stmt.executeUpdate(
 					"CREATE TABLE TASKS (ID varchar(50), JOBID varchar(50), STATE varchar(30), CLASS varchar(255), CREATEDON DATE, UPDATEDON DATE)");
 			stmt.close();
@@ -447,6 +464,7 @@ public class JobScheduler {
 				e.printStackTrace();
 			}
 		}
+		System.out.println("Finished");
 		System.exit(0);
 	}
 }

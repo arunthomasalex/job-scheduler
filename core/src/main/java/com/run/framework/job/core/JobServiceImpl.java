@@ -28,14 +28,16 @@ public class JobServiceImpl implements JobService {
 
 	@Override
 	public boolean insert(Job job) {
-		String sql = "INSERT INTO JOBS (ID, CLASS, STATE, CREATEDON, UPDATEDON) VALUES (?, ?, ?, ?, ?)";
+		String sql = "INSERT INTO JOBS (ID, CLASS, STATE, PREVEXEC, NEXTEXEC, CREATEDON, UPDATEDON) VALUES (?, ?, ?, ?, ?, ?, ?)";
 		try (Connection connection = DriverManager.getConnection(dbUrl);
 				PreparedStatement statement = connection.prepareStatement(sql)) {
 			statement.setString(1, job.getJobId());
 			statement.setString(2, job.getClass().getCanonicalName());
 			statement.setString(3, job.getState().name());
-			statement.setDate(4, new Date(new java.util.Date().getTime()));
-			statement.setDate(5, null);
+			statement.setLong(4, job.getPrevExec());
+			statement.setLong(5, job.getNextExec());
+			statement.setDate(6, new Date(new java.util.Date().getTime()));
+			statement.setDate(7, null);
 			statement.execute();
 			statement.closeOnCompletion();
 			return true;
@@ -67,7 +69,7 @@ public class JobServiceImpl implements JobService {
 
 	@Override
 	public Job read(String jobId) {
-		String sql = "SELECT CLASS, STATE FROM JOBS WHERE ID = ?";
+		String sql = "SELECT CLASS, STATE, PREVEXEC, NEXTEXEC FROM JOBS WHERE ID = ?";
 		try (Connection connection = DriverManager.getConnection(dbUrl);
 				PreparedStatement statement = connection.prepareStatement(sql)) {
 			statement.setString(1, jobId);
@@ -79,6 +81,8 @@ public class JobServiceImpl implements JobService {
 					Job job = (Job) clazz.getConstructor().newInstance();
 					job.setJobId(jobId);
 					job.setState(JobState.valueOf(rs.getString("STATE")));
+					job.setPrevExec(rs.getLong("PREVEXEC"));
+					job.setNextExec(rs.getLong("NEXTEXEC"));
 					return job;
 				}
 			}
@@ -144,12 +148,14 @@ public class JobServiceImpl implements JobService {
 
 	@Override
 	public boolean update(Job job) {
-		String sql = "UPDATE JOBS SET STATE = ?, UPDATEDON = ? WHERE ID = ?";
+		String sql = "UPDATE JOBS SET STATE = ?, PREVEXEC = ?, NEXTEXEC = ?, UPDATEDON = ? WHERE ID = ?";
 		try (Connection connection = DriverManager.getConnection(dbUrl);
 				PreparedStatement statement = connection.prepareStatement(sql)) {
 			statement.setString(1, job.getState().name());
-			statement.setDate(2, new Date(new java.util.Date().getTime()));
-			statement.setString(3, job.getJobId());
+			statement.setLong(2, job.getPrevExec());
+			statement.setLong(3, job.getNextExec());
+			statement.setDate(4, new Date(new java.util.Date().getTime()));
+			statement.setString(5, job.getJobId());
 			statement.execute();
 			return true;
 		} catch (SQLException e) {

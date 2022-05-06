@@ -92,13 +92,13 @@ public class JobSchedulerTest {
 				String data000 = job.getTasks().get(0).getTasks().get(0).getTasks().get(0).getOutput().getData().toString();
 				Object data0000 = job.getTasks().get(0).getTasks().get(0).getTasks().get(0).getTasks().get(0).getOutput();
 				String data001 = job.getTasks().get(0).getTasks().get(0).getTasks().get(1).getOutput().getData().toString();
-				assertTrue(data0.startsWith("failedJob-sub-0"));
+				assertTrue(data0.startsWith("failedJob-failed-sub-0"));
 				assertTrue(data0.endsWith("Success"));
-				assertTrue(data00.startsWith("failedJob-sub-0-0"));
+				assertTrue(data00.startsWith("failedJob-failed-sub-0-0"));
 				assertTrue(data00.endsWith("Success"));
-				assertTrue(data000.startsWith("failedJob-sub-0-0-0"));
+				assertTrue(data000.startsWith("failedJob-failed-sub-0-0-0"));
 				assertTrue(data000.endsWith("Failed"));
-				assertTrue(data001.startsWith("failedJob-sub-0-0-1"));
+				assertTrue(data001.startsWith("failedJob-failed-sub-0-0-1"));
 				assertTrue(data001.endsWith("Success"));
 				assertNull(data0000);
 			}));

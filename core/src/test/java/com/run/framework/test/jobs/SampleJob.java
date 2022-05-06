@@ -28,6 +28,7 @@ public class SampleJob extends Job {
 
 	@Override
 	protected void onFailure() {
+		name = name + "-failed";
 		appendJobNames(getTasks());
 	}
 

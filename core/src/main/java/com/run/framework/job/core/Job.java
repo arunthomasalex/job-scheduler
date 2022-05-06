@@ -15,6 +15,8 @@ public abstract class Job {
 	private String jobId;
 	private JobState state;
 	private String cron;
+	private Long prevExec = 0l;
+	private Long nextExec = 0l;
 	private List<Task> tasks = new ArrayList<Task>();
 
 	public JobState getState() {
@@ -53,6 +55,22 @@ public abstract class Job {
 		tasks.addAll(tasks);
 	}
 	
+	public Long getPrevExec() {
+		return prevExec;
+	}
+
+	public void setPrevExec(Long prevExec) {
+		this.prevExec = prevExec;
+	}
+
+	public Long getNextExec() {
+		return nextExec;
+	}
+
+	public void setNextExec(Long nextExec) {
+		this.nextExec = nextExec;
+	}
+
 	public boolean isScheduled() {
 		return cron != null && !cron.trim().isEmpty();
 	}
