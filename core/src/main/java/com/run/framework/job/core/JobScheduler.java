@@ -125,7 +125,7 @@ public class JobScheduler {
 							}
 						}
 					}
-				} catch (InterruptedException e) {
+				} catch (Exception e) {
 					e.printStackTrace();
 				} finally {
 					if (isLockAvailable) {
@@ -207,9 +207,9 @@ public class JobScheduler {
 	 * <ul>
 	 * <li>Some TaskState are handled from inside Task class
 	 * <ul>
-	 * <li>{@value TaskState#EXECUTED}
-	 * <li></li>{@value TaskState#STARTED}
-	 * <li></li>{@value TaskState#FAILED}</li>
+	 * <li>{@value TaskState#EXECUTED}</li>
+	 * <li>{@value TaskState#STARTED}</li>
+	 * <li>{@value TaskState#FAILED}</li>
 	 * </ul>
 	 * </li>
 	 * <li>The rest to TaskState is handled from this method.</li>
@@ -221,27 +221,37 @@ public class JobScheduler {
 	 *         remaining or if a task failed.
 	 */
 	private boolean createSubTasksIfDone(Task task, Job job) {
-		if (task.getState() == TaskState.STARTED) {
+		if (task.getState() == null)
+			return false;
+		switch (task.getState()) {
+		case STARTED:
 			changeTaskStatus(task, TaskState.EXECUTING);
-		} else if (task.getState() == TaskState.EXECUTED) {
+			break;
+		case EXECUTED:
 			updateTaskStatus(task);
 			task.onComplete();
 			changeTaskStatus(task, TaskState.COMPLETED);
 			removeFromTaskDependencies(task, task.getTasks());
 			initiateTasks(task.getTasks());
-		} else if (task.getState() == TaskState.COMPLETED) {
+			break;
+		case COMPLETED:
 			changeTaskStatus(task, TaskState.FINISHED);
 			return createSubTasksIfDone(task, job);
-		} else if (task.getState() == TaskState.FINISHED) {
+		case FINISHED:
 			boolean status = true;
 			for (Task sub : task.getTasks()) {
 				status = createSubTasksIfDone(sub, job);
 				if (!status)
 					return status;
 			}
-		} else if (task.getState() == TaskState.FAILING) {
+			break;
+		case FAILING:
 			task.onFailure();
 			changeTaskStatus(task, TaskState.FAILED);
+			break;
+		default:
+			break;
+
 		}
 		return task.getState() == TaskState.FINISHED || task.getState() == TaskState.FAILED;
 	}
@@ -390,14 +400,6 @@ public class JobScheduler {
 		jobService.updateTask(task);
 	}
 
-	private void addTaskDependencies(List<Task> tasks, String taskId, String jobId) {
-		List<TaskDependencies> dependencies = tasks.stream()
-				.map(sub -> new TaskDependencies(taskId, sub.getTaskId(), jobId)).collect(Collectors.toList());
-		for (TaskDependencies dependency : dependencies) {
-			jobService.insertTaskDependency(dependency);
-		}
-	}
-
 	/**
 	 * This method will create a random id for task and job.
 	 * 
@@ -460,15 +462,23 @@ public class JobScheduler {
 
 	private void addJobData(Job job) {
 		jobService.insert(job);
-		addTaskDataRecursively(job.getTasks(), "0", job.getJobId());
+		addTaskData(job.getTasks(), "0", job.getJobId());
 	}
 
-	private void addTaskDataRecursively(List<Task> tasks, String parentId, String jobId) {
+	private void addTaskData(List<Task> tasks, String parentId, String jobId) {
 		for (Task task : tasks) {
 			jobService.insertTask(task);
-			addTaskDataRecursively(task.getTasks(), task.getTaskId(), jobId);
+			addTaskData(task.getTasks(), task.getTaskId(), jobId);
 		}
-		addTaskDependencies(tasks, parentId, jobId);
+		addTaskDependencyData(tasks, parentId, jobId);
+	}
+
+	private void addTaskDependencyData(List<Task> tasks, String taskId, String jobId) {
+		List<TaskDependencies> dependencies = tasks.stream()
+				.map(sub -> new TaskDependencies(taskId, sub.getTaskId(), jobId)).collect(Collectors.toList());
+		for (TaskDependencies dependency : dependencies) {
+			jobService.insertTaskDependency(dependency);
+		}
 	}
 
 	/**
@@ -492,6 +502,20 @@ public class JobScheduler {
 		try {
 			entered = jobLock.tryLock();
 			data = jobs.stream().collect(Collectors.toMap(Job::getJobId, job -> job.getState().name()));
+		} finally {
+			if (entered)
+				jobLock.unlock();
+		}
+		return data;
+	}
+
+	public List<String> getScheduledJobs() {
+		boolean entered = false;
+		List<String> data = null;
+		try {
+			entered = jobLock.tryLock();
+			data = jobs.stream().filter(job -> job.isScheduled()).map(job -> job.getJobId())
+					.collect(Collectors.toList());
 		} finally {
 			if (entered)
 				jobLock.unlock();
