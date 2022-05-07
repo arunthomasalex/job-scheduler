@@ -19,7 +19,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -54,7 +53,7 @@ public class JobScheduler {
 	/**
 	 * Handler for the daemon job that can be used to start and stop the daemon job.
 	 */
-	private ScheduledFuture<?> daemon;
+	private ScheduledExecutorService daemonExecutorService;
 
 	/**
 	 * This scheduler is used handling cron job that are scheduled for execution in
@@ -93,10 +92,11 @@ public class JobScheduler {
 	}
 
 	public void startScheduler() {
-		if (daemon == null || daemon.isDone()) {
+		if (daemonExecutorService == null || daemonExecutorService.isTerminated()) {
+			daemonExecutorService = Executors.newScheduledThreadPool(1);
 			loadScheduledJobs();
 			changeJobsStatus(JobState.STALLED, JobState.EXECUTING);
-			daemon = scheduledExecutorService.scheduleAtFixedRate(() -> {
+			daemonExecutorService.scheduleAtFixedRate(() -> {
 				boolean isLockAvailable = false;
 				try {
 					isLockAvailable = daemonLock.tryLock(1, TimeUnit.SECONDS);
@@ -161,25 +161,24 @@ public class JobScheduler {
 		if (taskIds != null)
 			for (String id : taskIds) {
 				Task task = jobTasks.get(id);
+				task.setState(null);
 				tasks.add(task);
-				loadJobTask(task.getTasks(), jobTasks, taskDep, task.getTaskId());
+				if (task.getTasks() != null)
+					loadJobTask(task.getTasks(), jobTasks, taskDep, task.getTaskId());
 			}
 	}
 
-	private void stopScheduler(boolean flag) {
-		daemon.cancel(flag);
-		changeJobsStatus(JobState.EXECUTING, JobState.STALLED);
-	}
-
 	public void stopScheduler() {
-		if (daemon != null && !daemon.isDone()) {
-			stopScheduler(false);
+		if (daemonExecutorService != null && !daemonExecutorService.isTerminated()) {
+			daemonExecutorService.shutdown();
+			changeJobsStatus(JobState.EXECUTING, JobState.STALLED);
 		}
 	}
 
 	public void forceStopScheduler() {
-		if (daemon != null && !daemon.isDone()) {
-			stopScheduler(true);
+		if (daemonExecutorService != null && !daemonExecutorService.isTerminated()) {
+			daemonExecutorService.shutdownNow();
+			changeJobsStatus(JobState.EXECUTING, JobState.STALLED);
 		}
 	}
 
@@ -223,15 +222,15 @@ public class JobScheduler {
 	 */
 	private boolean createSubTasksIfDone(Task task, Job job) {
 		if (task.getState() == TaskState.STARTED) {
-			changeTaskStatus(task, TaskState.EXECUTING, job.isScheduled());
+			changeTaskStatus(task, TaskState.EXECUTING);
 		} else if (task.getState() == TaskState.EXECUTED) {
-			updateTaskStatus(task, job.isScheduled());
+			updateTaskStatus(task);
 			task.onComplete();
-			changeTaskStatus(task, TaskState.COMPLETED, job.isScheduled());
+			changeTaskStatus(task, TaskState.COMPLETED);
 			removeFromTaskDependencies(task, task.getTasks());
 			initiateTasks(task.getTasks());
 		} else if (task.getState() == TaskState.COMPLETED) {
-			changeTaskStatus(task, TaskState.FINISHED, job.isScheduled());
+			changeTaskStatus(task, TaskState.FINISHED);
 			return createSubTasksIfDone(task, job);
 		} else if (task.getState() == TaskState.FINISHED) {
 			boolean status = true;
@@ -242,7 +241,7 @@ public class JobScheduler {
 			}
 		} else if (task.getState() == TaskState.FAILING) {
 			task.onFailure();
-			changeTaskStatus(task, TaskState.FAILED, job.isScheduled());
+			changeTaskStatus(task, TaskState.FAILED);
 		}
 		return task.getState() == TaskState.FINISHED || task.getState() == TaskState.FAILED;
 	}
@@ -269,8 +268,12 @@ public class JobScheduler {
 	 */
 	private void scheduleJob(Job job, boolean scheduled) {
 		if (scheduled) {
-			scheduledExecutorService.schedule(() -> initiateJob(job), JobUtil.nextExecutionTime(job.getCron()),
-					TimeUnit.MILLISECONDS);
+			scheduledExecutorService.schedule(() -> {
+				job.setPrevExec(job.getNextExec());
+				job.setNextExec(JobUtil.nextExecutionDate(job.getCron()));
+				resetTaskStatus(job.getTasks());
+				initiateJob(job);
+			}, JobUtil.nextExecutionTime(job.getCron()), TimeUnit.MILLISECONDS);
 		} else {
 			initiateJob(job);
 		}
@@ -291,6 +294,13 @@ public class JobScheduler {
 		initiateTasks(job.getTasks());
 		if (job.isScheduled()) {
 			scheduleJob(job, true);
+		}
+	}
+
+	private void resetTaskStatus(List<Task> tasks) {
+		for (Task task : tasks) {
+			task.setState(null);
+			resetTaskStatus(task.getTasks());
 		}
 	}
 
@@ -347,19 +357,7 @@ public class JobScheduler {
 	 * @param scheduled
 	 */
 	private void updateJobStatus(Job job, boolean scheduled) {
-		if (job.getState() == JobState.STARTED) {
-			job.setPrevExec(job.getNextExec());
-			if (scheduled) {
-				job.setNextExec(JobUtil.nextExecutionDate(job.getCron()));
-				Job tmp = jobService.read(job.getJobId());
-				if (tmp != null) {
-					jobService.update(job);
-					return;
-				}
-			}
-			jobService.insert(job);
-			addTaskDependencies(job.getTasks(), "0", job.getJobId());
-		} else if (job.getState() == JobState.COMPLETED && !scheduled) {
+		if (job.getState() == JobState.COMPLETED && !scheduled) {
 			jobService.deleteTasks(job.getJobId());
 			jobService.deleteJobTaskDependencies(job.getJobId());
 			jobService.delete(job.getJobId());
@@ -378,9 +376,9 @@ public class JobScheduler {
 	 * @param task  Task Object
 	 * @param state New task state
 	 */
-	private void changeTaskStatus(Task task, TaskState state, boolean scheduled) {
+	private void changeTaskStatus(Task task, TaskState state) {
 		task.setState(state);
-		updateTaskStatus(task, scheduled);
+		updateTaskStatus(task);
 	}
 
 	/**
@@ -388,20 +386,8 @@ public class JobScheduler {
 	 * 
 	 * @param task Task object
 	 */
-	private void updateTaskStatus(Task task, boolean scheduled) {
-		if (task.getState() == TaskState.EXECUTING) {
-			if (scheduled) {
-				Task tmp = jobService.readTask(task.getTaskId());
-				if (tmp != null) {
-					jobService.updateTask(task);
-					return;
-				}
-			}
-			jobService.insertTask(task);
-			addTaskDependencies(task.getTasks(), task.getTaskId(), task.getJobId());
-		} else {
-			jobService.updateTask(task);
-		}
+	private void updateTaskStatus(Task task) {
+		jobService.updateTask(task);
 	}
 
 	private void addTaskDependencies(List<Task> tasks, String taskId, String jobId) {
@@ -419,7 +405,7 @@ public class JobScheduler {
 	 */
 	private synchronized String generateId() {
 		try {
-			Thread.sleep(2);
+			Thread.sleep(1);
 		} catch (InterruptedException e) {
 			e.printStackTrace();
 		}
@@ -438,6 +424,7 @@ public class JobScheduler {
 		for (Task task : tasks) {
 			task.setJobId(jobId);
 			task.setTaskId(generateId());
+			task.setState(TaskState.INITIALIZED);
 			setTaskUniqueIds(task.getTasks(), jobId);
 		}
 	}
@@ -459,12 +446,29 @@ public class JobScheduler {
 	 * @param job
 	 */
 	public synchronized void submit(Job job) {
-		job.setJobId(generateId());
-		setTaskUniqueIds(job.getTasks(), job.getJobId());
+		if (job.getJobId() == null) {
+			job.setJobId(generateId());
+			job.setState(JobState.INITIALIZED);
+			setTaskUniqueIds(job.getTasks(), job.getJobId());
+			addJobData(job);
+		}
 		for (Task task : job.getTasks()) {
 			findDependentTasks(task, task.getTasks());
 		}
 		scheduleJob(job, job.isScheduled());
+	}
+
+	private void addJobData(Job job) {
+		jobService.insert(job);
+		addTaskDataRecursively(job.getTasks(), "0", job.getJobId());
+	}
+
+	private void addTaskDataRecursively(List<Task> tasks, String parentId, String jobId) {
+		for (Task task : tasks) {
+			jobService.insertTask(task);
+			addTaskDataRecursively(task.getTasks(), task.getTaskId(), jobId);
+		}
+		addTaskDependencies(tasks, parentId, jobId);
 	}
 
 	/**
@@ -497,7 +501,8 @@ public class JobScheduler {
 
 	public Map<String, String> getJobschedulerStatus() {
 		Map<String, String> schedulerStatus = new HashMap<String, String>();
-		schedulerStatus.put(defaultScheduler.schedulerName, defaultScheduler.daemon.isDone() ? "Stopped" : "Running");
+		schedulerStatus.put(defaultScheduler.schedulerName,
+				defaultScheduler.daemonExecutorService.isTerminated() ? "Stopped" : "Running");
 		return schedulerStatus;
 	}
 

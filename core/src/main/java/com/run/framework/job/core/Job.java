@@ -95,11 +95,10 @@ public abstract class Job {
 	protected abstract void onComplete();
 	
 	protected abstract void onFailure();
-	
+
 	@Override
 	public String toString() {
-		// TODO Auto-generated method stub
-		return "{ jobId:" + jobId + " }";
+		return "Job [jobId=" + jobId + ", state=" + state + ", cron=" + cron + ", prevExec=" + prevExec + ", nextExec="
+				+ nextExec + ", tasks=" + tasks + "]";
 	}
-
 }

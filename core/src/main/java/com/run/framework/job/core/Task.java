@@ -92,4 +92,10 @@ public abstract class Task implements Runnable {
 		taskState = TaskState.STARTED;
 		this.compute();
 	}
+
+	@Override
+	public String toString() {
+		return "Task [taskId=" + taskId + ", jobId=" + jobId + ", dependentTasks=" + dependentTasks + ", taskState="
+				+ taskState + "]";
+	}
 }
