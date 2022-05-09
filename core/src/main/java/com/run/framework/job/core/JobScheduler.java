@@ -91,6 +91,10 @@ public class JobScheduler {
 		startScheduler();
 	}
 
+	/**
+	 * This method will start the job scheduler daemon that keep track of the jobs
+	 * that are loaded for executing.
+	 */
 	public void startScheduler() {
 		if (daemonExecutorService == null || daemonExecutorService.isTerminated()) {
 			daemonExecutorService = Executors.newScheduledThreadPool(1);
@@ -168,6 +172,10 @@ public class JobScheduler {
 			}
 	}
 
+	/**
+	 * This method will stop the job scheduler as the existing tasks completes and
+	 * all the pending jobs will got to STALLED state.
+	 */
 	public void stopScheduler() {
 		if (daemonExecutorService != null && !daemonExecutorService.isTerminated()) {
 			daemonExecutorService.shutdown();
@@ -175,6 +183,10 @@ public class JobScheduler {
 		}
 	}
 
+	/**
+	 * This method will terminated the job scheduler without waiting for the task to
+	 * be completed and all the pending jobs will got to STALLED state.
+	 */
 	public void forceStopScheduler() {
 		if (daemonExecutorService != null && !daemonExecutorService.isTerminated()) {
 			daemonExecutorService.shutdownNow();
@@ -213,7 +225,7 @@ public class JobScheduler {
 	 * </ul>
 	 * </li>
 	 * <li>The rest to TaskState is handled from this method.</li>
-	 * <ul>
+	 * </ul>
 	 * 
 	 * @param task Task object
 	 * @param job  Job object
@@ -496,6 +508,11 @@ public class JobScheduler {
 		}
 	}
 
+	/**
+	 * Returns the status of the current running jobs on getting the jobLock.
+	 * 
+	 * @return Map<String, String>
+	 */
 	public Map<String, String> getActiveJobStatus() {
 		boolean entered = false;
 		Map<String, String> data = null;
@@ -509,6 +526,11 @@ public class JobScheduler {
 		return data;
 	}
 
+	/**
+	 * Returns all the current running scheduled jobs.
+	 * 
+	 * @return List<String>
+	 */
 	public List<String> getScheduledJobs() {
 		boolean entered = false;
 		List<String> data = null;
@@ -523,6 +545,11 @@ public class JobScheduler {
 		return data;
 	}
 
+	/**
+	 * Returns the status of the job scheduler.
+	 * 
+	 * @return Map<String, String>
+	 */
 	public Map<String, String> getJobschedulerStatus() {
 		Map<String, String> schedulerStatus = new HashMap<String, String>();
 		schedulerStatus.put(defaultScheduler.schedulerName,
